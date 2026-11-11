@@ -326,6 +326,11 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
             let elapsedInt = Int(elapsed)
             let path = url.path
 
+            if path.lowercased().contains("bootstrap") || path.lowercased().contains("customize") {
+                // No URL queries, request bodies or authorization values in diagnostics.
+                writeDebugLog("[CONFIG V2] request host=\(host) endpoint=\(url.lastPathComponent) bootstrapMatch=\(url.isBootstrap) customizeMatch=\(url.isCustomize)")
+            }
+
             if url.isAdRelated {
                 writeDebugLog("[ORACLE][NET_BLOCK] Cancelled ad task at \(elapsedInt)s: \(host)\(path)")
                 task.cancel()

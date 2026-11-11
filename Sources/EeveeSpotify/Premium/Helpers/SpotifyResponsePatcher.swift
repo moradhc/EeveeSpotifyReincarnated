@@ -39,39 +39,9 @@ enum SpotifyResponsePatcher {
     }
 
     static func shouldBlock(_ url: URL) -> Bool {
-        let elapsed = Date().timeIntervalSince(tweakInitTime)
-        let path = url.path.lowercased()
-
-        if url.isDeleteToken || url.isSessionInvalidation
-            || path.contains("session/purge") || path.contains("token/revoke")
-            || url.isAdRelated {
-            return true
-        }
-        if path.contains("/dac/view/v1/") { return true }
-        if path.contains("/esperanto/") && (path.contains("ad") || path.contains("slot")) {
-            return true
-        }
-
-        // 30s grace: signup/public is part of fresh-login; blocking pre-30s
-        // breaks first-launch.
-        if elapsed > 30 {
-            return url.isAccountValidate || url.isOndemandSelector
-                || url.isTrialsFacade || url.isPremiumMarketing || url.isPendragonFetchMessageList
-                || url.isPushkaTokens
-                || url.path.contains("signup/public") || url.path.contains("apresolve")
-                || url.path.contains("pses/screenconfig")
-                || shouldHandleCustomize(url)
-        }
-        return false
-    }
-
-    // Customize policy shared by shouldBlock/shouldModify. We do NOT blanket-block
-    // customize: when the cache is cold there is nothing to replay, and serving an
-    // empty body re-enables free-tier flags (crash/ad recurrence). Instead we let
-    // the request through to a real 200 (patched on arrival), or synthesize a 200
-    // from cache for 304s — see the URLSession hooks.
-    static func shouldHandleCustomize(_ url: URL) -> Bool {
-        url.isCustomize && UserDefaults.patchType.isPatching
+        SpotifyRequestRouting.shouldBlock(
+            url, elapsed: Date().timeIntervalSince(tweakInitTime)
+        )
     }
 
     static func shouldModify(_ url: URL) -> Bool {
@@ -110,9 +80,6 @@ enum SpotifyResponsePatcher {
         if url.path.contains("pses/screenconfig") {
             return #"{}"#.data(using: .utf8)!
         }
-        if shouldHandleCustomize(url), let cached = cachedCustomizeData {
-            return cached
-        }
         return Data()
     }
 
@@ -145,6 +112,7 @@ enum SpotifyResponsePatcher {
         }
         if url.isBootstrap {
             var msg = try BootstrapMessage(serializedBytes: buffer)
+            writeDebugLog("[CONFIG V2] bootstrap decoded: attributes=\(msg.attributes.count)")
             UserDefaults.hasPatchedBootstrap = true
             if UserDefaults.patchType == .requests {
                 modifyRemoteConfiguration(&msg.ucsResponse)
@@ -153,6 +121,7 @@ enum SpotifyResponsePatcher {
         }
         if url.isCustomize {
             var msg = try CustomizeMessage(serializedBytes: buffer)
+            writeDebugLog("[CONFIG V2] customize decoded: attributes=\(msg.response.attributes.accountAttributes.count)")
             modifyRemoteConfiguration(&msg.response)
             let data = try msg.serializedData()
             cachedCustomizeData = data

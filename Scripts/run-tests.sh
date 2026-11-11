@@ -21,6 +21,10 @@ for main_swift in Tests/*/main.swift; do
         BrowsitaSectionStripper)
             extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/BrowsitaSectionStripper.swift")
             ;;
+        ConfigurationRouting)
+            extra_sources+=("Sources/EeveeSpotify/Shared/Models/Extensions/URL+Extension.swift")
+            extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/SpotifyRequestRouting.swift")
+            ;;
         URLAdClassification)
             extra_sources+=("Sources/EeveeSpotify/Shared/Models/Extensions/URL+Extension.swift")
             ;;

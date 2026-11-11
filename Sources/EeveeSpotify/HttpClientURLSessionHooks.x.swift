@@ -35,7 +35,12 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
             return
         }
 
+        if url.isBootstrap || url.isCustomize {
+            let code = error.map { ($0 as NSError).code } ?? 0
+            writeDebugLog("[CONFIG V2] HCUS completed kind=\(url.isBootstrap ? "bootstrap" : "customize") errorCode=\(code)")
+        }
         guard error == nil, SpotifyResponsePatcher.shouldModify(url) else {
+            URLSessionHelper.shared.discardData(for: task)
             orig.URLSession(session, task: task, didCompleteWithError: error)
             return
         }
@@ -87,7 +92,13 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
             orig.URLSession(session, dataTask: task, didReceiveData: buffer)
             orig.URLSession(session, task: task, didCompleteWithError: nil)
         } catch {
-            orig.URLSession(session, task: task, didCompleteWithError: error)
+            // The incoming body was withheld. Deliver it on parse failure instead
+            // of completing without data and leaving Spotify with an empty config.
+            if url.isBootstrap || url.isCustomize {
+                writeDebugLog("[CONFIG V2] HCUS parse failed bytes=\(buffer.count) type=\(String(reflecting: type(of: error)))")
+            }
+            orig.URLSession(session, dataTask: task, didReceiveData: buffer)
+            orig.URLSession(session, task: task, didCompleteWithError: nil)
         }
     }
 
@@ -97,6 +108,9 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
         didReceiveResponse response: HTTPURLResponse,
         completionHandler handler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        if let url = task.currentRequest?.url, url.isBootstrap || url.isCustomize {
+            writeDebugLog("[CONFIG V2] HCUS response kind=\(url.isBootstrap ? "bootstrap" : "customize") status=\(response.statusCode)")
+        }
         if let url = task.currentRequest?.url, url.isCustomize, response.statusCode == 304 {
             // Warm relaunch: customize revalidates via ETag and returns 304 with no
             // body. The in-memory cache is empty in a fresh process, so fall back to

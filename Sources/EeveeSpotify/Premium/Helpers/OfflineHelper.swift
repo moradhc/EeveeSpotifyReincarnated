@@ -35,6 +35,10 @@ class OfflineHelper {
     //
     
     static func resetData(clearCaches: Bool = false) {
+        // A reset must also drop the tweak's replay cache, not only Spotify's.
+        SpotifyResponsePatcher.cachedCustomizeData = nil
+        UserDefaults.hasPatchedBootstrap = false
+        URLCache.shared.removeAllCachedResponses()
         try? resetPersistentCache()
         try? resetRemoteConfig()
         

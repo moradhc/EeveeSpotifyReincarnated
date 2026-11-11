@@ -303,6 +303,7 @@ struct EeveeSpotify: Tweak {
 
             if UserDefaults.patchType.isPatching {
                 PremiumBootstrapGroup().activate()
+                writeDebugLog("[CONFIG V2] modern delegates active; legacy bootstrap hook excluded")
                 writeDebugLog("[INIT] Activated PremiumBootstrapGroup")
 
                 if let hub = NSClassFromString("HUBViewModelBuilderImplementation"),
@@ -391,6 +392,7 @@ struct EeveeSpotify: Tweak {
         }
         
         if UserDefaults.patchType.isPatching {
+            LegacyPremiumBootstrapGroup().activate()
             activatePremiumPatchingGroup()
         }
         

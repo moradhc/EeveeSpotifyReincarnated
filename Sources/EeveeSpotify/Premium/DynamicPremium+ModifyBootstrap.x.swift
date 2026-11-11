@@ -1,5 +1,8 @@
 import Orion
 
+// Never activate alongside the modern delegate: both drain the same task buffer.
+struct LegacyPremiumBootstrapGroup: HookGroup {}
+
 private func showHavePremiumPopUp() {
     PopUpHelper.showPopUp(
         delayed: true,
@@ -10,7 +13,7 @@ private func showHavePremiumPopUp() {
 
 class SpotifySessionDelegateBootstrapHook: ClassHook<NSObject>, SpotifySessionDelegate {
     // This hook is the *core* of premium patching (intercepts bootstrap and mutates UCS).
-    typealias Group = PremiumBootstrapGroup
+    typealias Group = LegacyPremiumBootstrapGroup
     static var targetName: String {
         switch EeveeSpotify.hookTarget {
         case .lastAvailableiOS14: return "SPTCoreURLSessionDataDelegate"
