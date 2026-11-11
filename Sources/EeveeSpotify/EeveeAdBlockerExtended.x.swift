@@ -27,6 +27,7 @@ struct ScrollFeedAdServiceGroup: HookGroup {}
 struct ScrollFeedAdControllerGroup: HookGroup {}
 struct RealTimeAdControllerServiceGroup: HookGroup {}
 struct AdsBaseSwiftServiceGroup: HookGroup {}
+struct AdsBaseServiceGroup: HookGroup {}
 struct AudioAdPiPCoordinatorServiceGroup: HookGroup {}
 struct AdsInstrumentationServiceGroup: HookGroup {}
 struct AdsElementServiceGroup: HookGroup {}
@@ -328,6 +329,19 @@ class AdsBaseSwiftServiceKill: ClassHook<NSObject> {
     }
 }
 
+// Spotify 9.1.98 registers this service under AdsPlatform_AdsBaseImpl.
+// Keep the older module target above: each group is activated only when its
+// own class and instance load method exist, as checked in loadTargets below.
+class AdsBaseServiceKill: ClassHook<NSObject> {
+    typealias Group = AdsBaseServiceGroup
+    static let targetName =
+        "_TtC23AdsPlatform_AdsBaseImpl23AdsBaseSwiftServiceImpl"
+
+    func load() {
+        adlog("AdsPlatform_AdsBaseImpl.AdsBaseSwiftServiceImpl.load")
+    }
+}
+
 class AudioAdPiPCoordinatorServiceKill: ClassHook<NSObject> {
     typealias Group = AudioAdPiPCoordinatorServiceGroup
     static let targetName =
@@ -500,6 +514,7 @@ func activateEeveeAdBlockerExtended() {
         (LeavebehindAdElementProviderKill.targetName, "LeavebehindAdElementProvider", { ScrollFeedAdControllerGroup().activate() }),
         (RealTimeAdControllerServiceKill.targetName, "RealTimeAdControllerServiceImpl", { RealTimeAdControllerServiceGroup().activate() }),
         (AdsBaseSwiftServiceKill.targetName, "AdsBaseSwiftServiceImpl", { AdsBaseSwiftServiceGroup().activate() }),
+        (AdsBaseServiceKill.targetName, "AdsPlatform_AdsBaseImpl.AdsBaseSwiftServiceImpl", { AdsBaseServiceGroup().activate() }),
         (AudioAdPiPCoordinatorServiceKill.targetName, "AudioAdPictureInPictureCoordinatorService", { AudioAdPiPCoordinatorServiceGroup().activate() }),
         (AdsInstrumentationServiceKill.targetName, "AdsInstrumentationServiceImpl", { AdsInstrumentationServiceGroup().activate() }),
         (AdsElementServiceKill.targetName, "ElementServiceImpl", { AdsElementServiceGroup().activate() }),
