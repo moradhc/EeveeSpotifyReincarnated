@@ -1,5 +1,6 @@
 import Foundation
 import Orion
+import EeveeSpotifyC
 
 private let oneYearFromNowISO: String = {
     let d = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date().addingTimeInterval(31_536_000)
@@ -174,51 +175,70 @@ class CoreProductStateHook: ClassHook<NSObject> {
 
     func setOriginalValues(_ dict: NSDictionary) {
         passiveLogProductState("setOriginal", dict)
-        orig.setOriginalValues(enableDictRewrite ? rewritePremiumDict(dict) : dict)
+        let output = enableDictRewrite ? rewritePremiumDict(dict) : dict
+        EEVProductStateDictionary("set-original", dict, output)
+        orig.setOriginalValues(output)
     }
 
     func setOverrides(_ dict: NSDictionary) {
         passiveLogProductState("setOverrides", dict)
-        orig.setOverrides(enableDictRewrite ? rewritePremiumDict(dict) : dict)
+        let output = enableDictRewrite ? rewritePremiumDict(dict) : dict
+        EEVProductStateDictionary("set-overrides", dict, output)
+        orig.setOverrides(output)
     }
 
     func initWithValuesDict(_ dict: NSDictionary, scheduler: UnsafeRawPointer) -> Any {
         let d = enableDictRewrite ? rewritePremiumDict(dict) : dict
+        EEVProductStateDictionary("init-dictionary", dict, d)
         return orig.initWithValuesDict(d, scheduler: scheduler)
     }
 
     func stringForKey(_ key: NSString) -> NSString? {
         if enableDirectGetters, let forced = forcedDirectGetterString(forKey: key as String) {
+            EEVProductStateGetter("string-getter", key as String, forced as NSString, true)
             return forced as NSString
         }
-        return orig.stringForKey(key)
+        let value = orig.stringForKey(key)
+        EEVProductStateGetter("string-getter", key as String, value, false)
+        return value
     }
 
     func objectForKeyedSubscript(_ key: NSString) -> Any? {
         if enableDirectGetters, let forced = forcedDirectGetterString(forKey: key as String) {
+            EEVProductStateGetter("subscript-getter", key as String, forced as NSString, true)
             return forced as NSString
         }
-        return orig.objectForKeyedSubscript(key)
+        let value = orig.objectForKeyedSubscript(key)
+        EEVProductStateGetter("subscript-getter", key as String, value, false)
+        return value
     }
 
     func values() -> NSDictionary {
         let d = orig.values()
-        return enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        EEVProductStateDictionary("values", d, output)
+        return output
     }
 
     func originalValues() -> NSDictionary {
         let d = orig.originalValues()
-        return enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        EEVProductStateDictionary("original-values", d, output)
+        return output
     }
 
     func valuesDictFromMap(_ map: UnsafeRawPointer) -> NSDictionary {
         let d = orig.valuesDictFromMap(map)
-        return enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        EEVProductStateDictionary("map-to-dictionary", d, output)
+        return output
     }
 
     func valuesDictFromChangedKeys(_ keys: UnsafeRawPointer) -> NSDictionary {
         let d = orig.valuesDictFromChangedKeys(keys)
-        return enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        EEVProductStateDictionary("changed-keys-to-dictionary", d, output)
+        return output
     }
 }
 
@@ -227,7 +247,9 @@ class AdsProductStateHook: ClassHook<NSObject> {
     static let targetName = "SPTAdsProductState"
 
     func adsEnabled() -> Bool {
-        return enableAdsHook ? false : orig.adsEnabled()
+        let value = enableAdsHook ? false : orig.adsEnabled()
+        EEVProductStateAds(value, enableAdsHook)
+        return value
     }
 }
 
@@ -276,4 +298,5 @@ func activateEeveePremiumForce() {
         return
     }
     EeveePremiumForceGroup().activate()
+    writeDebugLog("[STATE V4] force group activation requested; dictRewrite=\(enableDictRewrite) directGetters=\(enableDirectGetters) adsHook=\(enableAdsHook); check ORION ERROR for individual failures")
 }

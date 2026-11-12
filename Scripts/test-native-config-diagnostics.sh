@@ -14,3 +14,15 @@ xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
 xcrun swiftc -typecheck \
     -import-objc-header Sources/EeveeSpotifyC/include/NativeConfigDiagnostics.h \
     Tests/NativeConfigurationDiagnostics/bridge.swift
+
+xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
+    -framework Foundation -ISources/EeveeSpotifyC/include \
+    Sources/EeveeSpotifyC/ProductStateDiagnostics.m \
+    Tests/ProductStateDiagnostics/main.m \
+    -o "$TEST_DIR/product-state-tests"
+"$TEST_DIR/product-state-tests"
+"$TEST_DIR/product-state-tests" mismatch
+"$TEST_DIR/product-state-tests" inherited
+xcrun swiftc -typecheck \
+    -import-objc-header Sources/EeveeSpotifyC/include/ProductStateDiagnostics.h \
+    Tests/ProductStateDiagnostics/bridge.swift
