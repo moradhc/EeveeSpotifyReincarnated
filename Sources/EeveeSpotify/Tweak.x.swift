@@ -226,6 +226,18 @@ struct EeveeSpotify: Tweak {
             return
         }
 
+        // Install before other feature hooks so early configuration activity is visible.
+        if UserDefaults.debugLoggingEnabled {
+            EEVInstallNativeConfigDiagnostics { message in
+                writeDebugLog(String(cString: message))
+            }
+            for delay in [30.0, 90.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    EEVNativeConfigDiagnosticsSummary()
+                }
+            }
+        }
+
         // Local-only premium force; independent of patching, so premium UI survives everything else being off.
         activateEeveePremiumForce()
 

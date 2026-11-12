@@ -10,6 +10,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 echo "==> [1/3] Running ResolveConfigurationSnapshot test..."
 python3 Tests/ResolveConfigurationSnapshot/test.py
 
+bash Scripts/test-native-config-diagnostics.sh
+
 echo "==> [2/3] Compiling and running Swift test suites..."
 for main_swift in Tests/*/main.swift; do
     suite_dir="$(dirname "$main_swift")"
