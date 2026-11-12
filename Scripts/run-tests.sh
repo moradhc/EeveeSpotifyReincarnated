@@ -27,6 +27,9 @@ for main_swift in Tests/*/main.swift; do
             extra_sources+=("Sources/EeveeSpotify/Shared/Models/Extensions/URL+Extension.swift")
             extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/SpotifyRequestRouting.swift")
             ;;
+        InitialProductStatePolicy)
+            extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/InitialProductStatePolicy.swift")
+            ;;
         URLAdClassification)
             extra_sources+=("Sources/EeveeSpotify/Shared/Models/Extensions/URL+Extension.swift")
             ;;

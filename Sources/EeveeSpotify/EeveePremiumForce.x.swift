@@ -188,9 +188,14 @@ class CoreProductStateHook: ClassHook<NSObject> {
     }
 
     func initWithValuesDict(_ dict: NSDictionary, scheduler: UnsafeRawPointer) -> Any {
-        let d = enableDictRewrite ? rewritePremiumDict(dict) : dict
-        EEVProductStateDictionary("init-dictionary", dict, d)
-        return orig.initWithValuesDict(d, scheduler: scheduler)
+        let result = InitialProductStatePolicy.rewrite(
+            dict,
+            spotifyVersion: EeveeSpotify.spotifyVersion,
+            patchingEnabled: UserDefaults.patchType.isPatching
+        )
+        writeDebugLog("[STATE V5] initializer reason=\(result.reason) changedKeys=\(result.changedKeys.joined(separator: ","))")
+        EEVProductStateDictionary("init-dictionary", dict, result.dictionary)
+        return orig.initWithValuesDict(result.dictionary, scheduler: scheduler)
     }
 
     func stringForKey(_ key: NSString) -> NSString? {
