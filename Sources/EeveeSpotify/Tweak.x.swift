@@ -236,6 +236,9 @@ struct EeveeSpotify: Tweak {
 
         // Install before other feature hooks so early configuration activity is visible.
         if UserDefaults.debugLoggingEnabled {
+            EEVInstallCommandOutcomeDiagnostics(Self.spotifyVersion) { message in
+                writeDebugLog(String(cString: message))
+            }
             EEVInstallPlaybackDiagnostics { message in
                 writeDebugLog(String(cString: message))
             }

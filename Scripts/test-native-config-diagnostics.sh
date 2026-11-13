@@ -52,3 +52,15 @@ done
 xcrun swiftc -typecheck \
     -import-objc-header Sources/EeveeSpotifyC/include/PlaybackRestrictionPolicy.h \
     Tests/PlaybackRestrictionPolicy/bridge.swift
+
+xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
+    -framework Foundation -ISources/EeveeSpotifyC/include \
+    Sources/EeveeSpotifyC/CommandOutcomeDiagnostics.m \
+    Tests/CommandOutcomeDiagnostics/main.m \
+    -o "$TEST_DIR/command-outcome-tests"
+for mode in normal unsupported mismatch inherited; do
+    "$TEST_DIR/command-outcome-tests" "$mode"
+done
+xcrun swiftc -typecheck \
+    -import-objc-header Sources/EeveeSpotifyC/include/CommandOutcomeDiagnostics.h \
+    Tests/CommandOutcomeDiagnostics/bridge.swift
