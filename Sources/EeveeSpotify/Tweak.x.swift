@@ -226,6 +226,14 @@ struct EeveeSpotify: Tweak {
             return
         }
 
+        // V8 operates independently of debug logging, but only in patching mode.
+        // Install before V7 so snapshots describe the effective local model.
+        EEVInstallPlaybackRestrictionPolicy(Self.spotifyVersion, {
+            UserDefaults.patchType.isPatching
+        }, { message in
+            writeDebugLog(String(cString: message))
+        })
+
         // Install before other feature hooks so early configuration activity is visible.
         if UserDefaults.debugLoggingEnabled {
             EEVInstallPlaybackDiagnostics { message in
@@ -242,6 +250,7 @@ struct EeveeSpotify: Tweak {
                     EEVNativeConfigDiagnosticsSummary()
                     EEVProductStateSummary()
                     EEVPlaybackDiagnosticsSummary()
+                    EEVPlaybackRestrictionPolicySummary()
                 }
             }
         }

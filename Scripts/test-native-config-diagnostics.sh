@@ -38,3 +38,16 @@ xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
 xcrun swiftc -typecheck \
     -import-objc-header Sources/EeveeSpotifyC/include/PlaybackDiagnostics.h \
     Tests/PlaybackDiagnostics/bridge.swift
+
+xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
+    -framework Foundation -ISources/EeveeSpotifyC/include \
+    Sources/EeveeSpotifyC/PlaybackRestrictionPolicy.m \
+    Sources/EeveeSpotifyC/PlaybackDiagnostics.m \
+    Tests/PlaybackRestrictionPolicy/main.m \
+    -o "$TEST_DIR/playback-restriction-policy-tests"
+for mode in normal unsupported mismatch inherited with-v7; do
+    "$TEST_DIR/playback-restriction-policy-tests" "$mode"
+done
+xcrun swiftc -typecheck \
+    -import-objc-header Sources/EeveeSpotifyC/include/PlaybackRestrictionPolicy.h \
+    Tests/PlaybackRestrictionPolicy/bridge.swift
