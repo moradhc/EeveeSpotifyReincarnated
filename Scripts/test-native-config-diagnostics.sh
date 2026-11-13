@@ -26,3 +26,15 @@ xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
 xcrun swiftc -typecheck \
     -import-objc-header Sources/EeveeSpotifyC/include/ProductStateDiagnostics.h \
     Tests/ProductStateDiagnostics/bridge.swift
+
+xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
+    -framework Foundation -ISources/EeveeSpotifyC/include \
+    Sources/EeveeSpotifyC/PlaybackDiagnostics.m \
+    Tests/PlaybackDiagnostics/main.m \
+    -o "$TEST_DIR/playback-diagnostics-tests"
+"$TEST_DIR/playback-diagnostics-tests"
+"$TEST_DIR/playback-diagnostics-tests" mismatch
+"$TEST_DIR/playback-diagnostics-tests" inherited
+xcrun swiftc -typecheck \
+    -import-objc-header Sources/EeveeSpotifyC/include/PlaybackDiagnostics.h \
+    Tests/PlaybackDiagnostics/bridge.swift
