@@ -65,4 +65,38 @@ let detached = InitialProductStatePolicy.rewrite(mutable, spotifyVersion: "9.1.9
 mutable["type"] = "later-change"
 require(detached.dictionary["type"] as? String == "premium", "later input mutation must not change output")
 
-print("InitialProductStatePolicy: observed snapshot, field preservation, idempotence, version/mode gates and unexpected types passed")
+// V6 regression: a later notification reintroduces the same six Free values.
+let protectedKeys = InitialProductStatePolicy.existingKeys(in: input)
+let update = InitialProductStatePolicy.rewriteUpdate(input, protectedKeys: protectedKeys,
+                                                    spotifyVersion: "9.1.98", patchingEnabled: true)
+require(update.dictionary.isEqual(expected) && input.isEqual(originalCopy),
+        "late Free notification must be corrected without mutating its input")
+let delta: NSDictionary = ["ads": "1", "shuffle": "1", "country": "ES"]
+let correctedDelta = InitialProductStatePolicy.rewriteUpdate(delta, protectedKeys: protectedKeys,
+                                                            spotifyVersion: "9.1.98", patchingEnabled: true)
+require(correctedDelta.dictionary.isEqual(["ads": "0", "shuffle": "0", "country": "ES"] as NSDictionary),
+        "partial notifications must work without type/catalogue and must not seed missing keys")
+let correctedAgain = InitialProductStatePolicy.rewriteUpdate(correctedDelta.dictionary, protectedKeys: protectedKeys,
+                                                            spotifyVersion: "9.1.98", patchingEnabled: true)
+require(correctedAgain.dictionary === correctedDelta.dictionary && correctedAgain.changedKeys.isEmpty,
+        "nested dictionary reads must be idempotent")
+let unrelated: NSDictionary = ["country": "ES", "future-unknown-key": "fixture-unknown"]
+let unrelatedResult = InitialProductStatePolicy.rewriteUpdate(unrelated, protectedKeys: protectedKeys + ["country"],
+                                                            spotifyVersion: "9.1.98", patchingEnabled: true)
+require(unrelatedResult.dictionary === unrelated, "protected keys must never expand the six-key allowlist")
+for (version, enabled, keys) in [("9.1.98", false, protectedKeys), ("9.1.99", true, protectedKeys), ("9.1.98", true, [])] {
+    let skipped = InitialProductStatePolicy.rewriteUpdate(input, protectedKeys: keys,
+                                                        spotifyVersion: version, patchingEnabled: enabled)
+    require(skipped.dictionary === input && skipped.changedKeys.isEmpty, "update scope/mode/version gate bypassed")
+}
+let limited = InitialProductStatePolicy.rewriteUpdate(input, protectedKeys: ["ads"],
+                                                    spotifyVersion: "9.1.98", patchingEnabled: true)
+require(limited.dictionary["type"] as? String == "free" && limited.changedKeys == ["ads"],
+        "update must change only attributes registered at initialization")
+let deletion: NSDictionary = ["type": NSNull(), "ads": "1"]
+let deletionResult = InitialProductStatePolicy.rewriteUpdate(deletion, protectedKeys: protectedKeys,
+                                                           spotifyVersion: "9.1.98", patchingEnabled: true)
+require(deletionResult.dictionary === deletion && deletionResult.reason == "unexpected-value-type",
+        "unknown/deletion representation must not produce a partial rewrite")
+
+print("Product state policy: initialization, late/partial updates, scope, idempotence and preservation passed")

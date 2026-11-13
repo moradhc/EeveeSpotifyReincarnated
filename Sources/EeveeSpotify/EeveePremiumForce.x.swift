@@ -169,6 +169,15 @@ private func passiveLogProductState(_ tag: String, _ dict: NSDictionary) {
     }
 }
 
+private func correctedProductStateUpdate(_ dictionary: NSDictionary, for object: NSObject) -> NSDictionary {
+    InitialProductStatePolicy.rewriteUpdate(
+        dictionary,
+        protectedKeys: ProductStateSession.keys(for: object),
+        spotifyVersion: EeveeSpotify.spotifyVersion,
+        patchingEnabled: UserDefaults.patchType.isPatching
+    ).dictionary
+}
+
 class CoreProductStateHook: ClassHook<NSObject> {
     typealias Group = EeveePremiumForceGroup
     static let targetName = "SPTCoreProductState"
@@ -195,7 +204,13 @@ class CoreProductStateHook: ClassHook<NSObject> {
         )
         writeDebugLog("[STATE V5] initializer reason=\(result.reason) changedKeys=\(result.changedKeys.joined(separator: ","))")
         EEVProductStateDictionary("init-dictionary", dict, result.dictionary)
-        return orig.initWithValuesDict(result.dictionary, scheduler: scheduler)
+        let instance = orig.initWithValuesDict(result.dictionary, scheduler: scheduler)
+        if result.reason == "applied", let object = instance as? NSObject {
+            let keys = InitialProductStatePolicy.existingKeys(in: dict)
+            ProductStateSession.register(object, keys: keys)
+            writeDebugLog("[STATE V6] registered initializer instance; keys=\(keys.joined(separator: ",")); scope=observers-and-dictionary-reads")
+        }
+        return instance
     }
 
     func stringForKey(_ key: NSString) -> NSString? {
@@ -220,7 +235,7 @@ class CoreProductStateHook: ClassHook<NSObject> {
 
     func values() -> NSDictionary {
         let d = orig.values()
-        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = correctedProductStateUpdate(d, for: target)
         EEVProductStateDictionary("values", d, output)
         return output
     }
@@ -234,14 +249,14 @@ class CoreProductStateHook: ClassHook<NSObject> {
 
     func valuesDictFromMap(_ map: UnsafeRawPointer) -> NSDictionary {
         let d = orig.valuesDictFromMap(map)
-        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = correctedProductStateUpdate(d, for: target)
         EEVProductStateDictionary("map-to-dictionary", d, output)
         return output
     }
 
     func valuesDictFromChangedKeys(_ keys: UnsafeRawPointer) -> NSDictionary {
         let d = orig.valuesDictFromChangedKeys(keys)
-        let output = enableDictRewrite ? rewritePremiumDict(d) : d
+        let output = correctedProductStateUpdate(d, for: target)
         EEVProductStateDictionary("changed-keys-to-dictionary", d, output)
         return output
     }

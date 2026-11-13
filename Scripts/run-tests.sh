@@ -30,6 +30,10 @@ for main_swift in Tests/*/main.swift; do
         InitialProductStatePolicy)
             extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/InitialProductStatePolicy.swift")
             ;;
+        ProductStateSession)
+            extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/InitialProductStatePolicy.swift")
+            extra_sources+=("Sources/EeveeSpotify/Premium/Helpers/ProductStateSession.swift")
+            ;;
         URLAdClassification)
             extra_sources+=("Sources/EeveeSpotify/Shared/Models/Extensions/URL+Extension.swift")
             ;;
