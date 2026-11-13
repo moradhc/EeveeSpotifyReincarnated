@@ -3,7 +3,9 @@
 #import <dispatch/dispatch.h>
 #import <stdlib.h>
 #import <string.h>
+#import <CommonCrypto/CommonDigest.h>
 #import "PlaybackDiagnostics.h"
+#import "PlaybackReasonVocabulary.h"
 
 // Passive, ABI-checked entry points extracted from the supplied 9.1.98 IPA.
 // Commands, completion blocks and return objects are forwarded unchanged.
@@ -16,10 +18,11 @@ static NSMutableDictionary<NSString *, NSValue *> *RPOriginals;
 static NSSet<NSString *> *RPAllowedReasons;
 static NSString *const RPUI = @"_TtC23NowPlaying_PlatformImpl28StatefulPlayerImplementation";
 static NSString *const RPCore = @"SPTEsperantoPlayer";
+static NSString *const RPPosition = @"_TtC23NowPlaying_PlatformImpl41StatefulPlayerTrackPositionImplementation";
 static NSArray<NSString *> *RPRestrictionNames;
 
 static void RPLog(NSString *message) {
-    if (RPLogger) RPLogger([[@"[PLAYER V7] " stringByAppendingString:message] UTF8String]);
+    if (RPLogger) RPLogger([[@"[PLAYER V9] " stringByAppendingString:message] UTF8String]);
 }
 
 static unsigned long long RPRecord(NSString *event, NSString *detail) {
@@ -63,6 +66,8 @@ static Method RPProbe(NSString *className, NSString *name, NSArray<NSString *> *
         counter = [@"core-command." stringByAppendingString:name];
     if ([className isEqualToString:RPUI] && [name hasPrefix:@"skipTo"])
         counter = [@"ui-command." stringByAppendingString:name];
+    if ([className isEqualToString:RPPosition] && [name isEqualToString:@"updateWithPlayerState:eventOrigin:"])
+        counter = @"position-update";
     [RPLock lock];
     RPCounts[counter] = @0;
     if (method) RPOriginals[event] = [NSValue valueWithPointer:(const void *)method_getImplementation(method)];
@@ -89,12 +94,28 @@ static id RPReadObject(id object, NSString *className, NSString *name) {
     return imp ? ((id (*)(id, SEL))imp)(object, NSSelectorFromString(name)) : nil;
 }
 
+static NSString *RPUnknownReason(NSString *value, NSString *kind) {
+    // Never print arbitrary reason contents. Fingerprint only short identifiers;
+    // URLs, whitespace, long strings and unexpected data remain fully redacted.
+    if (value.length < 2 || value.length > 80) return kind;
+    NSCharacterSet *characters = [NSCharacterSet characterSetWithCharactersInString:
+        @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"];
+    if ([value rangeOfCharacterFromSet:characters.invertedSet].location != NSNotFound) return kind;
+    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+    NSMutableString *hex = [NSMutableString stringWithCapacity:64];
+    for (NSUInteger i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [hex appendFormat:@"%02x", digest[i]];
+    return [NSString stringWithFormat:@"%@:sha256=%@", kind, hex];
+}
+
 static NSString *RPReasonToken(id item) {
-    if ([item isKindOfClass:[NSString class]]) return [RPAllowedReasons containsObject:item] ? item : @"unknown-string";
+    if ([item isKindOfClass:[NSString class]]) return [RPAllowedReasons containsObject:item] ? item : RPUnknownReason(item, @"unknown-string");
     Class cls = NSClassFromString(@"SPTRestrictionStatus");
     if (cls && [item isKindOfClass:cls]) {
         id value = RPReadObject(item, @"SPTRestrictionStatus", @"restrictionID");
-        return [value isKindOfClass:[NSString class]] && [RPAllowedReasons containsObject:value] ? value : @"unknown-status";
+        if (![value isKindOfClass:[NSString class]]) return @"unknown-status";
+        return [RPAllowedReasons containsObject:value] ? value : RPUnknownReason(value, @"unknown-status");
     }
     return @"unknown-type";
 }
@@ -153,6 +174,35 @@ static void RPInstallBool(NSString *cls, NSString *name, BOOL relativeIndex) {
         });
     }
     method_setImplementation(method, replacement);
+}
+
+static NSString *RPBoolValue(id object, NSString *cls, NSString *name) {
+    IMP imp = RPReader(object, cls, name, @"B");
+    if (!imp) return @"unavailable";
+    return ((BOOL (*)(id, SEL))imp)(object, NSSelectorFromString(name)) ? @"1" : @"0";
+}
+
+static void RPInstallPositionUpdate(void) {
+    NSString *name = @"updateWithPlayerState:eventOrigin:";
+    Method method = RPProbe(RPPosition, name, @[@"v", @"@", @":", @"@", @"q"]);
+    if (!method) return;
+    SEL sel = NSSelectorFromString(name); IMP old = method_getImplementation(method);
+    method_setImplementation(method, imp_implementationWithBlock(^(id self, id state, NSInteger origin) {
+        // Preserve ordering: inspect cached flags only after the real update.
+        ((void (*)(id, SEL, id, NSInteger))old)(self, sel, state, origin);
+        id restrictions = RPReadObject(state, @"SPTPlayerState", @"restrictions");
+        id context = RPReadObject(state, @"SPTPlayerState", @"contextRestrictions");
+        NSString *detail = [NSString stringWithFormat:
+            @"after-update cachedSeeking=%@ cachedSeekingAlways=%@ loading=%@ modelSeeking=%@ modelReasons=[%@] contextSeeking=%@ contextReasons=[%@]",
+            RPBoolValue(self, RPPosition, @"disallowSeeking"),
+            RPBoolValue(self, RPPosition, @"disallowSeekingAlways"),
+            RPBoolValue(self, RPPosition, @"isLoading"),
+            RPBoolValue(restrictions, @"SPTPlayerRestrictions", @"disallowSeeking"),
+            RPReasons(RPReadObject(restrictions, @"SPTPlayerRestrictions", @"disallowSeekingReasons")),
+            RPBoolValue(context, @"SPTPlayerRestrictions", @"disallowSeeking"),
+            RPReasons(RPReadObject(context, @"SPTPlayerRestrictions", @"disallowSeekingReasons"))];
+        RPRecord(@"position-update", detail);
+    }));
 }
 
 static void RPInstallVoidCommand(NSString *name, BOOL withCount) {
@@ -252,6 +302,7 @@ void EEVInstallPlaybackDiagnostics(EEVConfigDiagnosticLogger logger) {
             @"narration", @"audiobook_capping", @"not_available_in_non_premium", @"not_available_offline",
             @"not_supported_by_device", @"not_supported_by_content_type", @"client_restriction", @"client_offline",
             @"context_restrictions", @"restrictions_permissions", @"not_available", @"disallowed", @"unknown"]];
+        RPAllowedReasons = [RPAllowedReasons setByAddingObjectsFromArray:EEVPlaybackReasonVocabularyV9()];
         RPRestrictionNames = @[@"disallowSkippingToPreviousTrack", @"disallowSkippingToNextTrack", @"disallowTogglingShuffle",
             @"disallowSeeking", @"disallowUpdatingContext", @"disallowInterruptingPlayback", @"disallowSwipePrevious",
             @"disallowSwipeNext", @"disallowTapToPlayTrackInNextTracks"];
@@ -273,6 +324,7 @@ void EEVInstallPlaybackDiagnostics(EEVConfigDiagnosticLogger logger) {
         RPInstallCallback(RPCore, @"globalPlayerSubscription:gotStateUpdate:", NO);
         RPInstallCallback(RPUI, @"player:stateDidChange:", NO);
         RPInstallCallback(RPUI, @"player:didEncounterError:", YES);
+        RPInstallPositionUpdate();
         RPLog(@"install complete");
     });
 }

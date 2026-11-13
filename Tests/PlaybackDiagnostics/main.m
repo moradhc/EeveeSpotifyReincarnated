@@ -10,9 +10,20 @@ static id core, ui, state, restriction, status, a, b, c, d, result, callback;
 static NSArray *reasons;
 static NSError *expectedError;
 static unsigned int commandCalls[7], callbackCalls, voidCalls, boolCalls;
+static id positionModel;
+static unsigned int positionUpdates;
+static BOOL cachedSeeking = YES;
 static void require(BOOL value, NSString *message) { if (!value) { NSLog(@"FAIL: %@", message); abort(); } }
 static void logger(const char *line) { [logs addObject:[NSString stringWithUTF8String:line]]; }
 static BOOL logged(NSString *part) { for (NSString *line in logs) if ([line containsString:part]) return YES; return NO; }
+static BOOL seekAllowed(id self, SEL cmd) { (void)cmd; require(self == restriction, @"seek receiver"); return NO; }
+static BOOL positionSeeking(id self, SEL cmd) { (void)cmd; require(self == positionModel, @"position receiver"); return cachedSeeking; }
+static BOOL positionAlways(id self, SEL cmd) { (void)cmd; require(self == positionModel, @"position always receiver"); return YES; }
+static BOOL positionLoading(id self, SEL cmd) { (void)cmd; require(self == positionModel, @"position loading receiver"); return NO; }
+static void positionUpdate(id self, SEL cmd, id incoming, NSInteger origin) {
+    (void)cmd; require(self == positionModel && incoming == state && origin == -7, @"position update arguments changed");
+    positionUpdates++; cachedSeeking = NO;
+}
 static BOOL blocked(id self, SEL cmd) { (void)cmd; require(self == restriction, @"restriction receiver changed"); boolCalls++; return YES; }
 static id getReasons(id self, SEL cmd) { (void)cmd; require(self == restriction, @"reasons receiver changed"); return reasons; }
 static id getRestriction(id self, SEL cmd) { (void)cmd; require(self == state, @"state receiver changed"); return restriction; }
@@ -47,6 +58,7 @@ int main(int argc, const char *argv[]) {
         logs = [NSMutableArray array];
         BOOL mismatch = argc > 1 && strcmp(argv[1], "mismatch") == 0;
         BOOL inherited = argc > 1 && strcmp(argv[1], "inherited") == 0;
+        BOOL positionMismatch = argc > 1 && strcmp(argv[1], "position-mismatch") == 0;
         Class parent = [NSObject class];
         if (inherited) {
             parent = objc_allocateClassPair(parent, "RPRestrictionParent", 0);
@@ -56,6 +68,8 @@ int main(int argc, const char *argv[]) {
         Class rc = objc_allocateClassPair(parent, "SPTPlayerRestrictions", 0);
         if (!inherited) add(rc, @"disallowSkippingToPreviousTrack", (IMP)blocked, mismatch ? "q16@0:8" : "B16@0:8");
         add(rc, @"disallowSkippingToPreviousTrackReasons", (IMP)getReasons, "@16@0:8");
+        add(rc, @"disallowSeeking", (IMP)seekAllowed, "B16@0:8");
+        add(rc, @"disallowSeekingReasons", (IMP)getReasons, "@16@0:8");
         objc_registerClassPair(rc); restriction = [[rc alloc] init];
         Class sc = objc_allocateClassPair([NSObject class], "SPTPlayerState", 0);
         add(sc, @"restrictions", (IMP)getRestriction, "@16@0:8");
@@ -82,11 +96,22 @@ int main(int argc, const char *argv[]) {
         add(uc, @"player:stateDidChange:", (IMP)stateCallback, "v32@0:8@16@24");
         add(uc, @"player:didEncounterError:", (IMP)errorCallback, "v32@0:8@16@24");
         objc_registerClassPair(uc); ui = [[uc alloc] init];
+        Class pc = objc_allocateClassPair([NSObject class], "_TtC23NowPlaying_PlatformImpl41StatefulPlayerTrackPositionImplementation", 0);
+        add(pc, @"updateWithPlayerState:eventOrigin:", (IMP)positionUpdate, positionMismatch ? "v32@0:8@16d24" : "v32@0:8@16q24");
+        add(pc, @"disallowSeeking", (IMP)positionSeeking, "B16@0:8");
+        add(pc, @"disallowSeekingAlways", (IMP)positionAlways, "B16@0:8");
+        add(pc, @"isLoading", (IMP)positionLoading, "B16@0:8");
+        objc_registerClassPair(pc); positionModel = [[pc alloc] init];
         a = @"PRIVATE_ARGUMENT"; b = [NSObject new]; c = [NSObject new]; d = [NSObject new]; result = [NSObject new];
         __block unsigned int completions = 0;
         callback = [^{ completions++; } copy];
         EEVPlaybackDiagnosticsSummary(); require(logs.count == 0, @"logging active before install");
         EEVInstallPlaybackDiagnostics(logger);
+        if (positionMismatch) {
+            require(imp(positionModel, @"updateWithPlayerState:eventOrigin:") == (IMP)positionUpdate, @"position ABI mismatch was hooked");
+            require(logged(@"StatefulPlayerTrackPositionImplementation.updateWithPlayerState:eventOrigin: skipped"), @"position skip missing");
+            puts("Playback diagnostics: position ABI mismatch skipped"); return 0;
+        }
         IMP first = imp(core, @"skipToPreviousTrackWithOptions:");
         EEVInstallPlaybackDiagnostics(logger);
         require(imp(core, @"skipToPreviousTrackWithOptions:") == first && commandCalls[0] == 0, @"duplicate install or command invoked during install");
@@ -128,9 +153,21 @@ int main(int argc, const char *argv[]) {
         require(boolCalls == 5, @"expected one app read plus four model snapshots");
         require(logged(@"summary event=SPTPlayerRestrictions.disallowSkippingToPreviousTrack total=1"), @"diagnostic reads counted as app calls");
         require(logged(@"summary event=core-command.skipToPreviousTrackWithOptions: total=20"), @"throttled calls lost");
-        require(logged(@"disallowSkippingToPreviousTrack=1[mft_disallow,unknown-string,unknown-type]"), @"restriction snapshot missing/redaction wrong");
+        require(logged(@"disallowSkippingToPreviousTrack=1[mft_disallow,unknown-string:sha256=") && logged(@",unknown-type]"), @"restriction snapshot missing/redaction wrong");
         require(logged(@"code=-1009") && logged(@"not a completion result"), @"error/return distinction missing");
         require(!logged(@"PRIVATE_"), @"private argument/reason/error leaked");
+        require(logged(@"[PLAYER V9] install complete"), @"V9 marker missing");
+        require(positionUpdates == 0, @"position command executed during install");
+        reasons = @[@"skip_to_next_restricted", @"https://PRIVATE_URL", @"PRIVATE_REASON"];
+        name = @"updateWithPlayerState:eventOrigin:";
+        ((void (*)(id, SEL, id, NSInteger))imp(positionModel, name))(positionModel, NSSelectorFromString(name), state, -7);
+        require(positionUpdates == 1 && !cachedSeeking, @"original update not called exactly once");
+        require(logged(@"after-update cachedSeeking=0 cachedSeekingAlways=1 loading=0 modelSeeking=0"), @"flags not read after original update");
+        require(logged(@"skip_to_next_restricted") && logged(@"unknown-string:sha256="), @"new vocabulary or fingerprint missing");
+        require(logged(@"sha256=f00e013ca9289b975f7e4c2fc9fdf85f8150acbd504569145408b69662c18144"), @"fingerprint does not match UTF-8 SHA-256");
+        require(!logged(@"PRIVATE_"), @"unknown contents leaked");
+        EEVPlaybackDiagnosticsSummary();
+        require(logged(@"summary event=position-update total=1"), @"position update count missing");
         puts("Playback diagnostics: ABI, forwarding, block/return identity, snapshot scope, counts and redaction passed");
     }
     return 0;

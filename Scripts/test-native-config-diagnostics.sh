@@ -35,6 +35,7 @@ xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
 "$TEST_DIR/playback-diagnostics-tests"
 "$TEST_DIR/playback-diagnostics-tests" mismatch
 "$TEST_DIR/playback-diagnostics-tests" inherited
+"$TEST_DIR/playback-diagnostics-tests" position-mismatch
 xcrun swiftc -typecheck \
     -import-objc-header Sources/EeveeSpotifyC/include/PlaybackDiagnostics.h \
     Tests/PlaybackDiagnostics/bridge.swift
