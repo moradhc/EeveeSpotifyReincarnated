@@ -28,6 +28,7 @@ func exitApplication() {
 
 // Split so bootstrap patching survives UI hooks breaking on a given Spotify build.
 struct PremiumBootstrapGroup: HookGroup { }
+struct PremiumHttpClientConfigurationGroup: HookGroup { }
 struct PremiumUIHooksGroup: HookGroup { }
 
 struct BasePremiumPatchingGroup: HookGroup { }
