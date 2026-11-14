@@ -6,12 +6,14 @@ struct RemoteFlagsGroup: HookGroup {}
 private enum Resolve {
     static func bool(_ key: NSString, _ orig: Bool, _ start: UInt64) -> Bool {
         let value = RemoteFlags.shared.resolve(key as String, kind: .bool, orig: orig, since: start)
-        return (value as? NSNumber)?.boolValue ?? orig
+        return (value as? NSNumber)?.boolValue ?? BundledConfigurationReads.bool(key as String, original: orig)
     }
 
     static func int(_ key: NSString, _ lower: Int, _ upper: Int, _ orig: Int, _ start: UInt64) -> Int {
         let value = RemoteFlags.shared.resolve(key as String, kind: .int, orig: orig, lower: lower, upper: upper, since: start)
-        guard let number = value as? NSNumber else { return orig }
+        guard let number = value as? NSNumber else {
+            return BundledConfigurationReads.integer(key as String, lower: lower, upper: upper, original: orig)
+        }
         return min(max(number.intValue, lower), upper)
     }
 
@@ -20,7 +22,9 @@ private enum Resolve {
             key as String, kind: .choice, orig: orig,
             options: values.compactMap { $0 as? String }, since: start
         )
-        guard let string = value as? NSString, values.contains(string) else { return orig }
+        guard let string = value as? NSString, values.contains(string) else {
+            return BundledConfigurationReads.choice(key as String, options: values.compactMap { $0 as? String }, original: orig)
+        }
         return string
     }
 }
@@ -92,7 +96,8 @@ private enum ObservableProviderSwizzle {
 func activateRemoteFlags() {
     _ = RemoteFlags.launchOverrides
     let flags = RemoteFlags.shared
-    guard flags.needsHooks else {
+    let useBundledReads = BundledConfigurationReads.enabled
+    guard flags.needsHooks || useBundledReads else {
         eeveeLog("[EeveeSpotify][Flags] Off (no overrides, catalog current)")
         return
     }
@@ -101,9 +106,13 @@ func activateRemoteFlags() {
         return
     }
     let start = CFAbsoluteTimeGetCurrent()
+    BundledConfigurationReads.prepare()
     flags.prepare()
     RemoteFlagsGroup().activate()
     let observable = ObservableProviderSwizzle.install()
+    if useBundledReads {
+        writeDebugLog("[CONFIG V16] provider hooks requested; observable=\(observable)/3; awaiting consumer reads")
+    }
     eeveeLog("[EeveeSpotify][Flags] Active: %d overrides, %d forced, observable %d/3, catalog %@ (%.2f ms)",
           RemoteFlags.overrides.count, flags.forced.count, observable,
           flags.catalogIsCurrent ? "current" : "capturing",

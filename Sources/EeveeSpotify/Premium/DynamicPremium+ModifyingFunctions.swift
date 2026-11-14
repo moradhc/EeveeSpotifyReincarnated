@@ -398,7 +398,7 @@ private let propertyReplacements = [
     EeveePropertyReplacement(name: "enable_sharing_v2", modification: .forceBool(true))
 ]
 
-private func modifyAssignedValues(_ values: inout [AssignedValue]) {
+func modifyAssignedValues(_ values: inout [AssignedValue]) {
     for replacement in propertyReplacements {
         let matchingIndices = values.indices.filter({ index in
             let value = values[index]
