@@ -83,7 +83,7 @@ class TimeCapPivotServiceKill: ClassHook<NSObject> {
     func load() { rflog("suppressed TimeCapPivotServiceImplementation.load") }
 }
 
-class PlayFullSongUpsellServiceKill: ClassHook<NSObject> {
+class RFPlayFullSongUpsellServiceKill: ClassHook<NSObject> {
     typealias Group = ReinventFreePlayFullSongGroup
     static let targetName = "_TtC35ReinventFree_PlayFullSongUpsellImpl29PlayFullSongUpsellServiceImpl"
     func load() { rflog("suppressed PlayFullSongUpsellServiceImpl.load") }
@@ -101,7 +101,7 @@ class CtxUpsellPremiumPromoServiceKill: ClassHook<NSObject> {
     func load() { rflog("suppressed ContextualUpsellPremiumPromoServiceImpl.load") }
 }
 
-class DownloadUpsellServiceKill: ClassHook<NSObject> {
+class RFDownloadUpsellServiceKill: ClassHook<NSObject> {
     typealias Group = ReinventFreeDownloadUpsellGroup
     static let targetName = "_TtC31ReinventFree_DownloadUpsellImpl21DownloadUpsellService"
     func load() { rflog("suppressed DownloadUpsellService.load") }
@@ -126,10 +126,10 @@ func activateReinventFreeBlocker() {
         (ReinventFreeNpvServiceKill.targetName, "ReinventFreeNpvService", { ReinventFreeNpvGroup().activate() }),
         (StepDownCapServiceKill.targetName, "StepDownCapServiceImpl", { ReinventFreeStepDownCapGroup().activate() }),
         (TimeCapPivotServiceKill.targetName, "TimeCapPivotServiceImplementation", { ReinventFreeTimeCapPivotGroup().activate() }),
-        (PlayFullSongUpsellServiceKill.targetName, "PlayFullSongUpsellServiceImpl", { ReinventFreePlayFullSongGroup().activate() }),
+        (RFPlayFullSongUpsellServiceKill.targetName, "PlayFullSongUpsellServiceImpl", { ReinventFreePlayFullSongGroup().activate() }),
         (AdUnlockEligibilityServiceKill.targetName, "AdUnlockEligibilityServiceImplementation", { ReinventFreeAdUnlockGroup().activate() }),
         (CtxUpsellPremiumPromoServiceKill.targetName, "ContextualUpsellPremiumPromoServiceImpl", { ReinventFreeCtxUpsellPromoGroup().activate() }),
-        (DownloadUpsellServiceKill.targetName, "DownloadUpsellService", { ReinventFreeDownloadUpsellGroup().activate() }),
+        (RFDownloadUpsellServiceKill.targetName, "DownloadUpsellService", { ReinventFreeDownloadUpsellGroup().activate() }),
         (TopUpEligibilityServiceKill.targetName, "TopUpEligibilityServiceImpl", { ReinventFreeTopUpGroup().activate() }),
     ]
 
