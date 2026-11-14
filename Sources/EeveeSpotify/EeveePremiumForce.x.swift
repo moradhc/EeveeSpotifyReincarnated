@@ -1,6 +1,5 @@
 import Foundation
 import Orion
-import EeveeSpotifyC
 
 private let oneYearFromNowISO: String = {
     let d = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date().addingTimeInterval(31_536_000)
@@ -93,6 +92,16 @@ private let directGetterCoreAdKeys: Set<String> = [
     "force_logout",
     "logout_required",
     "session_invalidated",
+    // Additional keys needed for 9.2.0+ where dict rewrite alone may not
+    // cover late reads through stringForKey:/objectForKeyedSubscript:.
+    "social-connect",
+    "tracks-in-collection-enabled",
+    "is-eligible-premium-unboxing",
+    "can_use_superbird",
+    "manager",
+    "nft-disabled",
+    "subscription-enddate",
+    "product-expiry",
 ]
 
 private func forcedDirectGetterString(forKey key: String) -> String? {
@@ -169,96 +178,57 @@ private func passiveLogProductState(_ tag: String, _ dict: NSDictionary) {
     }
 }
 
-private func correctedProductStateUpdate(_ dictionary: NSDictionary, for object: NSObject) -> NSDictionary {
-    InitialProductStatePolicy.rewriteUpdate(
-        dictionary,
-        protectedKeys: ProductStateSession.keys(for: object),
-        spotifyVersion: EeveeSpotify.spotifyVersion,
-        patchingEnabled: UserDefaults.patchType.isPatching
-    ).dictionary
-}
-
 class CoreProductStateHook: ClassHook<NSObject> {
     typealias Group = EeveePremiumForceGroup
     static let targetName = "SPTCoreProductState"
 
     func setOriginalValues(_ dict: NSDictionary) {
         passiveLogProductState("setOriginal", dict)
-        let output = enableDictRewrite ? rewritePremiumDict(dict) : dict
-        EEVProductStateDictionary("set-original", dict, output)
-        orig.setOriginalValues(output)
+        orig.setOriginalValues(enableDictRewrite ? rewritePremiumDict(dict) : dict)
     }
 
     func setOverrides(_ dict: NSDictionary) {
         passiveLogProductState("setOverrides", dict)
-        let output = enableDictRewrite ? rewritePremiumDict(dict) : dict
-        EEVProductStateDictionary("set-overrides", dict, output)
-        orig.setOverrides(output)
+        orig.setOverrides(enableDictRewrite ? rewritePremiumDict(dict) : dict)
     }
 
     func initWithValuesDict(_ dict: NSDictionary, scheduler: UnsafeRawPointer) -> Any {
-        let result = InitialProductStatePolicy.rewrite(
-            dict,
-            spotifyVersion: EeveeSpotify.spotifyVersion,
-            patchingEnabled: UserDefaults.patchType.isPatching
-        )
-        writeDebugLog("[STATE V5] initializer reason=\(result.reason) changedKeys=\(result.changedKeys.joined(separator: ","))")
-        EEVProductStateDictionary("init-dictionary", dict, result.dictionary)
-        let instance = orig.initWithValuesDict(result.dictionary, scheduler: scheduler)
-        if result.reason == "applied", let object = instance as? NSObject {
-            let keys = InitialProductStatePolicy.existingKeys(in: dict)
-            ProductStateSession.register(object, keys: keys)
-            writeDebugLog("[STATE V6] registered initializer instance; keys=\(keys.joined(separator: ",")); scope=observers-and-dictionary-reads")
-        }
-        return instance
+        let d = enableDictRewrite ? rewritePremiumDict(dict) : dict
+        return orig.initWithValuesDict(d, scheduler: scheduler)
     }
 
     func stringForKey(_ key: NSString) -> NSString? {
         if enableDirectGetters, let forced = forcedDirectGetterString(forKey: key as String) {
-            EEVProductStateGetter("string-getter", key as String, forced as NSString, true)
             return forced as NSString
         }
-        let value = orig.stringForKey(key)
-        EEVProductStateGetter("string-getter", key as String, value, false)
-        return value
+        return orig.stringForKey(key)
     }
 
     func objectForKeyedSubscript(_ key: NSString) -> Any? {
         if enableDirectGetters, let forced = forcedDirectGetterString(forKey: key as String) {
-            EEVProductStateGetter("subscript-getter", key as String, forced as NSString, true)
             return forced as NSString
         }
-        let value = orig.objectForKeyedSubscript(key)
-        EEVProductStateGetter("subscript-getter", key as String, value, false)
-        return value
+        return orig.objectForKeyedSubscript(key)
     }
 
     func values() -> NSDictionary {
         let d = orig.values()
-        let output = correctedProductStateUpdate(d, for: target)
-        EEVProductStateDictionary("values", d, output)
-        return output
+        return enableDictRewrite ? rewritePremiumDict(d) : d
     }
 
     func originalValues() -> NSDictionary {
         let d = orig.originalValues()
-        let output = enableDictRewrite ? rewritePremiumDict(d) : d
-        EEVProductStateDictionary("original-values", d, output)
-        return output
+        return enableDictRewrite ? rewritePremiumDict(d) : d
     }
 
     func valuesDictFromMap(_ map: UnsafeRawPointer) -> NSDictionary {
         let d = orig.valuesDictFromMap(map)
-        let output = correctedProductStateUpdate(d, for: target)
-        EEVProductStateDictionary("map-to-dictionary", d, output)
-        return output
+        return enableDictRewrite ? rewritePremiumDict(d) : d
     }
 
     func valuesDictFromChangedKeys(_ keys: UnsafeRawPointer) -> NSDictionary {
         let d = orig.valuesDictFromChangedKeys(keys)
-        let output = correctedProductStateUpdate(d, for: target)
-        EEVProductStateDictionary("changed-keys-to-dictionary", d, output)
-        return output
+        return enableDictRewrite ? rewritePremiumDict(d) : d
     }
 }
 
@@ -267,9 +237,7 @@ class AdsProductStateHook: ClassHook<NSObject> {
     static let targetName = "SPTAdsProductState"
 
     func adsEnabled() -> Bool {
-        let value = enableAdsHook ? false : orig.adsEnabled()
-        EEVProductStateAds(value, enableAdsHook)
-        return value
+        return enableAdsHook ? false : orig.adsEnabled()
     }
 }
 
@@ -296,7 +264,18 @@ private func swizzleBoolGetter(_ cls: AnyClass, _ name: String, _ value: Bool) {
 
 struct EeveePremiumForceGroup: HookGroup {}
 
-private let enableDictRewrite = false
+// 9.2.0 removed the HTTP bootstrap/customize endpoints: product state arrives
+// via C++ Esperanto and is fed into SPTCoreProductState.initWithValuesDict at
+// init time.  Without dict rewrite, the C++ layer keeps the Free values from
+// the server and the player stays restricted.  Enable it for 9.1+ so the dict
+// is rewritten to premium values before the C++ side caches them.
+private let enableDictRewrite: Bool = {
+    let v = EeveeSpotify.spotifyVersion
+    let parts = v.split(separator: ".").compactMap { Int($0) }
+    guard parts.count >= 2 else { return true }
+    let (major, minor) = (parts[0], parts[1])
+    return major > 9 || (major == 9 && minor >= 1)
+}()
 private let enableDirectGetters = true
 private let enableAdsHook = true
 private let enablePassiveProductStateLog = true
@@ -318,5 +297,4 @@ func activateEeveePremiumForce() {
         return
     }
     EeveePremiumForceGroup().activate()
-    writeDebugLog("[STATE V4] force group activation requested; dictRewrite=\(enableDictRewrite) directGetters=\(enableDirectGetters) adsHook=\(enableAdsHook); check ORION ERROR for individual failures")
 }
