@@ -1,6 +1,34 @@
 import Foundation
 import Orion
 
+// Counts categories only: no URLs, tokens, account IDs or response bodies.
+private enum ConfigurationTrafficV13 {
+    private static let lock = NSLock()
+    private static var total = 0
+    private static var configuration = 0
+    private static var failed = 0
+    private static var scheduled = false
+
+    static func record(_ url: URL, error: Error?) {
+        lock.lock()
+        total += 1
+        if url.isBootstrap || url.isCustomize { configuration += 1 }
+        if error != nil { failed += 1 }
+        let schedule = !scheduled
+        scheduled = true
+        lock.unlock()
+        if schedule {
+            writeDebugLog("[CONFIG V13] HTTP completion observed; summary in 30 seconds")
+            DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+                lock.lock()
+                let counts = (total, configuration, failed)
+                lock.unlock()
+                writeDebugLog("[CONFIG V13] HTTP summary total=\(counts.0) bootstrapOrCustomize=\(counts.1) failed=\(counts.2)")
+            }
+        }
+    }
+}
+
 // Sibling delegate to SPTDataLoaderService. Some regions (e.g. gae2) ship
 // bootstrap / customize / PAM responses through this delegate instead — without
 // hooking both, server-rendered free-tier strings slip through.
@@ -19,6 +47,8 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
             orig.URLSession(session, task: task, didCompleteWithError: error)
             return
         }
+
+        ConfigurationTrafficV13.record(url, error: error)
 
         if CasitaResponseProbe.shouldProbe(url) {
             CasitaResponseProbe.flush(task, url: url)
@@ -160,7 +190,10 @@ class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
         dataTask task: URLSessionDataTask,
         didReceiveData data: Data
     ) {
-        guard let url = task.currentRequest?.url else { return }
+        guard let url = task.currentRequest?.url ?? task.originalRequest?.url else {
+            orig.URLSession(session, dataTask: task, didReceiveData: data)
+            return
+        }
         if SpotifyResponsePatcher.shouldBlock(url) { return }
         if CasitaResponseProbe.shouldProbe(url) {
             CasitaResponseProbe.append(data, for: task)

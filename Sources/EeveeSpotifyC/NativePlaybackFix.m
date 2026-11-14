@@ -27,7 +27,7 @@ static const uint32_t *NPGetState(void *object) {
     if (caller != NPCaller || !NPEnabled || !NPEnabled()) return original;
     if (!EEVNativePlaybackShouldOverride(true, caller, NPCaller, *original)) return original;
     unsigned int hit = atomic_fetch_add_explicit(&NPHits, 1, memory_order_relaxed);
-    if (hit < 3 && NPLogger) NPLogger("[CORE V11] applied restriction-state 3/4 -> 0");
+    if (hit < 3 && NPLogger) NPLogger("[CORE V13] applied restriction-state 3/4 -> 0");
     return &NPPremium;
 }
 
@@ -55,43 +55,60 @@ void EEVInstallNativePlaybackFix(EEVNativePlaybackEnabled enabled, EEVConfigDiag
     static dispatch_once_t once;
     dispatch_once(&once, ^{
 #if defined(__aarch64__)
-        const struct mach_header_64 *header = (const void *)_dyld_get_image_header(0);
-        if (!header || header->magic != MH_MAGIC_64 || header->filetype != MH_EXECUTE) {
-            logger("[CORE V11] skipped: main image unavailable"); return;
-        }
+        // A launcher/injector can change image ordering. Identify the verified
+        // Spotify image by UUID, never by array index or executable file type.
         const uint8_t expectedUUID[16] = {0xb4,0x9e,0x75,0x78,0x1d,0x86,0x35,0xd3,
             0x8b,0xb5,0x7d,0xaf,0x68,0xfe,0xd8,0xa8};
-        bool matchingUUID = false;
-        const uint8_t *p = (const uint8_t *)(header + 1), *end = p + header->sizeofcmds;
-        for (uint32_t i = 0; i < header->ncmds; i++) {
-            if ((size_t)(end - p) < sizeof(struct load_command)) break;
-            const struct load_command *lc = (const void *)p;
-            if (lc->cmdsize < sizeof(*lc) || lc->cmdsize > (size_t)(end - p)) break;
-            if (lc->cmd == LC_UUID && lc->cmdsize >= sizeof(struct uuid_command))
-                matchingUUID = !memcmp(((const struct uuid_command *)lc)->uuid, expectedUUID, 16);
-            p += lc->cmdsize;
+        const struct mach_header_64 *header = NULL;
+        intptr_t slide = 0;
+        uint32_t matches = 0;
+        const uint32_t imageCount = _dyld_image_count();
+        for (uint32_t imageIndex = 0; imageIndex < imageCount; imageIndex++) {
+            const struct mach_header_64 *candidate = (const void *)_dyld_get_image_header(imageIndex);
+            if (!candidate || candidate->magic != MH_MAGIC_64) continue;
+            const uint8_t *p = (const uint8_t *)(candidate + 1);
+            size_t remaining = candidate->sizeofcmds;
+            bool matchingUUID = false;
+            for (uint32_t i = 0; i < candidate->ncmds; i++) {
+                if (remaining < sizeof(struct load_command)) break;
+                const struct load_command *lc = (const void *)p;
+                if (lc->cmdsize < sizeof(*lc) || lc->cmdsize > remaining) break;
+                if (lc->cmd == LC_UUID && lc->cmdsize >= sizeof(struct uuid_command)) {
+                    matchingUUID = !memcmp(((const struct uuid_command *)lc)->uuid, expectedUUID, 16);
+                    break;
+                }
+                remaining -= lc->cmdsize;
+                p += lc->cmdsize;
+            }
+            if (!matchingUUID) continue;
+            header = candidate;
+            slide = _dyld_get_image_vmaddr_slide(imageIndex);
+            matches++;
         }
-        if (!matchingUUID) { logger("[CORE V11] skipped: unsupported UUID"); return; }
+        if (matches != 1) {
+            logger(matches ? "[CORE V13] skipped: ambiguous UUID" : "[CORE V13] skipped: supported UUID not loaded");
+            return;
+        }
+        logger("[CORE V13] verified Spotify UUID found by image scan");
         uintptr_t target = (uintptr_t)header + 0x5db6994;
         uintptr_t caller = (uintptr_t)header + 0x39d5bb8;
-        intptr_t slide = _dyld_get_image_vmaddr_slide(0);
         const uint8_t getterBytes[8] = {0x00,0x30,0x00,0x91,0xc0,0x03,0x5f,0xd6};
         const uint8_t callerBytes[8] = {0x08,0x00,0x40,0xb9,0x1f,0x15,0x00,0x71};
         if (!NPExecutable(header, slide, target, 8) || !NPExecutable(header, slide, caller, 8) ||
             memcmp((const void *)target, getterBytes, 8) || memcmp((const void *)caller, callerBytes, 8)) {
-            logger("[CORE V11] skipped: code mismatch or existing hook"); return;
+            logger("[CORE V13] skipped: code mismatch or existing hook"); return;
         }
         typedef void (*HookFunction)(void *, void *, void **);
         HookFunction hook = (HookFunction)dlsym(RTLD_DEFAULT, "MSHookFunction");
-        if (!hook) { logger("[CORE V11] skipped: MSHookFunction unavailable"); return; }
+        if (!hook) { logger("[CORE V13] skipped: MSHookFunction unavailable"); return; }
         NPEnabled = enabled; NPLogger = logger; NPCaller = caller;
         // No trampoline is required: NPGetState reproduces the verified getter
         // for every other caller and while patching is disabled.
         hook((void *)target, (void *)&NPGetState, NULL);
         // The backend API has no status return. Only 'applied' proves execution.
-        logger("[CORE V11] hook requested; wait for applied; scope=restriction-builder");
+        logger("[CORE V13] hook requested; wait for applied; scope=restriction-builder");
 #else
-        logger("[CORE V11] skipped: unsupported architecture");
+        logger("[CORE V13] skipped: unsupported architecture");
 #endif
     });
 }
