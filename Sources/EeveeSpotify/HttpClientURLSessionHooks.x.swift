@@ -5,7 +5,7 @@ import Orion
 // bootstrap / customize / PAM responses through this delegate instead — without
 // hooking both, server-rendered free-tier strings slip through.
 class HttpClientURLSessionHook: ClassHook<NSObject>, SpotifySessionDelegate {
-    typealias Group = PremiumBootstrapGroup
+    typealias Group = PremiumHttpClientConfigurationGroup
     static let targetName = "Connectivity_HttpClientKit.HttpClientURLSession"
 
     func URLSession(

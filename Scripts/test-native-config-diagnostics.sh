@@ -4,6 +4,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/eevee-native-config.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
+cc -std=c11 -Wall -Wextra -Werror -ISources/EeveeSpotifyC/include \
+    Tests/NativePlaybackPolicy/main.c -o "$TEST_DIR/native-playback-policy"
+"$TEST_DIR/native-playback-policy"
+xcrun --sdk iphoneos clang -target arm64-apple-ios14.0 \
+    -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+    -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror -fsyntax-only \
+    -ISources/EeveeSpotifyC/include Sources/EeveeSpotifyC/NativePlaybackFix.m
 xcrun clang -fobjc-arc -fblocks -std=gnu11 -Wall -Wextra -Werror \
     -framework Foundation -ISources/EeveeSpotifyC/include \
     Sources/EeveeSpotifyC/NativeConfigDiagnostics.m \

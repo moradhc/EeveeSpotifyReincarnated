@@ -10,6 +10,7 @@ func modifyRemoteConfiguration(_ configuration: inout UcsResponse) {
     modifyAttributes(&configuration.attributes.accountAttributes)
 
     let overwriteRequested = UserDefaults.overwriteConfiguration
+    writeDebugLog("[CONFIG V12] UCS received by modifier; overwrite=\(overwriteRequested)")
     if ServerSidedFeaturePolicy.shouldOverwriteResolvedConfiguration(
         requested: overwriteRequested
     ) {
@@ -19,7 +20,14 @@ func modifyRemoteConfiguration(_ configuration: inout UcsResponse) {
             liveMessagingAssignmentKeys.contains("\($0.propertyID.scope).\($0.propertyID.name)")
         }
 
-        configuration.resolve.configuration = try! BundleHelper.shared.resolveConfiguration()
+        do {
+            configuration.resolve.configuration = try BundleHelper.shared.resolveConfiguration()
+            writeDebugLog("[CONFIG V12] bundled resolve configuration applied")
+        } catch {
+            // Keep the live resolve config and still apply targeted attributes/flags.
+            let failure = error as NSError
+            writeDebugLog("[CONFIG V12] bundled resolve load failed code=\(failure.code); keeping live resolve")
+        }
 
         configuration.assignedValues.removeAll {
             liveMessagingAssignmentKeys.contains("\($0.propertyID.scope).\($0.propertyID.name)")

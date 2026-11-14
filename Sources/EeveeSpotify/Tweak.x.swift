@@ -28,6 +28,9 @@ func exitApplication() {
 
 // Split so bootstrap patching survives UI hooks breaking on a given Spotify build.
 struct PremiumBootstrapGroup: HookGroup { }
+// 9.2.0 no longer contains SPTDataLoaderService. Keep its HTTP delegate
+// independently activatable without enabling the legacy bootstrap hook.
+struct PremiumHttpClientConfigurationGroup: HookGroup { }
 struct PremiumUIHooksGroup: HookGroup { }
 
 struct BasePremiumPatchingGroup: HookGroup { }
@@ -226,6 +229,13 @@ struct EeveeSpotify: Tweak {
             return
         }
 
+        // V11: confirmed Frida behavior, scoped to the 9.2.0 restriction builder.
+        EEVInstallNativePlaybackFix({
+            UserDefaults.patchType.isPatching
+        }, { message in
+            writeDebugLog(String(cString: message))
+        })
+
         // V8 operates independently of debug logging, but only in patching mode.
         // Install before V7 so snapshots describe the effective local model.
         EEVInstallPlaybackRestrictionPolicy(Self.spotifyVersion, {
@@ -338,6 +348,7 @@ struct EeveeSpotify: Tweak {
 
             if UserDefaults.patchType.isPatching {
                 PremiumBootstrapGroup().activate()
+                PremiumHttpClientConfigurationGroup().activate()
                 writeDebugLog("[CONFIG V2] modern delegates active; legacy bootstrap hook excluded")
                 writeDebugLog("[INIT] Activated PremiumBootstrapGroup")
 
@@ -427,7 +438,12 @@ struct EeveeSpotify: Tweak {
         }
         
         if UserDefaults.patchType.isPatching {
-            LegacyPremiumBootstrapGroup().activate()
+            if Self.spotifyVersion == "9.2.0" {
+                PremiumHttpClientConfigurationGroup().activate()
+                writeDebugLog("[CONFIG V12] 9.2.0 HTTP configuration hook requested; overwrite=\(UserDefaults.overwriteConfiguration); legacy excluded")
+            } else {
+                LegacyPremiumBootstrapGroup().activate()
+            }
             activatePremiumPatchingGroup()
         }
         

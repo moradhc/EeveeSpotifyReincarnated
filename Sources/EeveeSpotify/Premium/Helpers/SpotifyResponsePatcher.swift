@@ -46,6 +46,7 @@ enum SpotifyResponsePatcher {
 
     static func shouldModify(_ url: URL) -> Bool {
         let shouldPatchPremium = BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive
+            || PremiumHttpClientConfigurationGroup.isActive
         let shouldReplaceLyrics = BaseLyricsGroup.isActive
         let isDAC = url.path.lowercased().contains("/dac/view/v1/")
 
