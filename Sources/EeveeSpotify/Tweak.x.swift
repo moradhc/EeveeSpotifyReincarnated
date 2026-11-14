@@ -383,7 +383,13 @@ struct EeveeSpotify: Tweak {
             } else {
                 writeDebugLog("[INIT] Settings_PlatformImpl.SettingsListViewController missing")
             }
-            eeveeLog("[EeveeSpotify] Initialization complete for 9.1.x")
+            // Block ReinventFree services that enforce Free-tier playback restrictions
+            // (shuffle-only, no seek, no queue, time caps).  Essential on 9.2.0+ where
+            // bootstrap/customize HTTP endpoints no longer exist and the player core reads
+            // product state through C++ Esperanto, bypassing the ObjC hooks.
+            activateReinventFreeBlocker()
+
+            eeveeLog("[EeveeSpotify] Initialization complete for 9.1.x+")
             TrueShuffleHook.install()
             activateEeveeProbes()
             activateSponsorBlock()
