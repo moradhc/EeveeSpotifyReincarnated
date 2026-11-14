@@ -149,4 +149,75 @@ func activateReinventFreeBlocker() {
     }
 
     rflog("activated \(activated)/\(targets.count) ReinventFree service kills")
+
+    // ── Player restriction override ────────────────────────────────────
+    // SPTPlayerRestrictions (and its backing classes) are Swift types that
+    // may or may not register in the ObjC runtime.  Scan all registered
+    // classes for the restriction selectors the C++ player exposes and
+    // swizzle every Bool getter to return true (= unrestricted).
+    let restrictionSelectors = [
+        "canSeek",
+        "canSkipNext",
+        "canSkipPrev",
+        "canAddToQueue",
+        "canToggleShuffle",
+        "canRepeatContext",
+        "canRepeatTrack",
+    ]
+
+    // Selectors that should return false to disable free-tier behavior
+    let invertSelectors = [
+        "isPlaybackRestricted",
+        "shouldApplyFMARestrictions",
+        "isFreeTierEnabled",
+        "isFreeTierUser",
+        "isFreeUser",
+        "isFreeExperienceEnabled",
+    ]
+
+    let total = objc_getClassList(nil, 0)
+    guard total > 0 else { rflog("objc_getClassList returned 0"); return }
+    let buf = UnsafeMutablePointer<AnyClass>.allocate(capacity: Int(total))
+    defer { buf.deallocate() }
+    let n = objc_getClassList(AutoreleasingUnsafeMutablePointer<AnyClass>(buf), total)
+
+    var swizzled = 0
+    for i in 0..<Int(n) {
+        let raw = UnsafeRawPointer(buf).load(
+            fromByteOffset: i * MemoryLayout<UnsafeRawPointer>.size,
+            as: UnsafeRawPointer.self
+        )
+        let cls: AnyClass = unsafeBitCast(raw, to: AnyClass.self)
+        let name = String(cString: class_getName(cls))
+
+        // Only touch Spotify's own classes (avoid Foundation/UIKit)
+        guard name.hasPrefix("SPT") || name.hasPrefix("_Tt") else { continue }
+
+        for sel in restrictionSelectors {
+            let selector = NSSelectorFromString(sel)
+            guard let method = class_getInstanceMethod(cls, selector) else { continue }
+            // Only swizzle Bool (B) return type
+            guard let typeStr = method_getTypeEncoding(method),
+                  String(cString: typeStr).hasPrefix("B") else { continue }
+            let block: @convention(block) (AnyObject) -> Bool = { _ in true }
+            let imp = imp_implementationWithBlock(block)
+            method_setImplementation(method, imp)
+            rflog("swizzled \(name).\(sel) → true")
+            swizzled += 1
+        }
+
+        for sel in invertSelectors {
+            let selector = NSSelectorFromString(sel)
+            guard let method = class_getInstanceMethod(cls, selector) else { continue }
+            guard let typeStr = method_getTypeEncoding(method),
+                  String(cString: typeStr).hasPrefix("B") else { continue }
+            let block: @convention(block) (AnyObject) -> Bool = { _ in false }
+            let imp = imp_implementationWithBlock(block)
+            method_setImplementation(method, imp)
+            rflog("swizzled \(name).\(sel) → false")
+            swizzled += 1
+        }
+    }
+
+    rflog("swizzled \(swizzled) player restriction methods")
 }
