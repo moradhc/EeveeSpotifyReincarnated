@@ -28,9 +28,6 @@ func exitApplication() {
 
 // Split so bootstrap patching survives UI hooks breaking on a given Spotify build.
 struct PremiumBootstrapGroup: HookGroup { }
-// 9.2.0 no longer contains SPTDataLoaderService. Keep its HTTP delegate
-// independently activatable without enabling the legacy bootstrap hook.
-struct PremiumHttpClientConfigurationGroup: HookGroup { }
 struct PremiumUIHooksGroup: HookGroup { }
 
 struct BasePremiumPatchingGroup: HookGroup { }
@@ -188,25 +185,33 @@ func eeveeEnvFlag(_ name: String) -> Bool {
 }
 
 struct EeveeSpotify: Tweak {
-    static let version = "7.0.0"
+    static let version = "7.0.1"
     static let buildNumber = "1"
     static let spotifyVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
     static let repoSlug = GeneratedConfig.repoSlug
     
     static var hookTarget: VersionHookTarget {
         let version = spotifyVersion
-        
+
         eeveeLog("[EeveeSpotify] Detected Spotify version: \(version)")
-        
+
         switch version {
         case "9.0.48":
             return .lastAvailableiOS15
         case "8.9.8":
             return .lastAvailableiOS14
-        case _ where version.contains("9.1"):
-            return .v91
         default:
-            return .latest
+            // Compare major.minor numerically so 9.1, 9.2, 10.x, … all get .v91.
+            let parts = version.split(separator: ".").compactMap { Int($0) }
+            guard parts.count >= 2 else {
+                // Unparseable version — a current build is far more likely than a pre-9.1 one.
+                return .v91
+            }
+            let (major, minor) = (parts[0], parts[1])
+            if major > 9 || (major == 9 && minor >= 1) {
+                return .v91
+            }
+            return .v90
         }
     }
     
@@ -229,50 +234,8 @@ struct EeveeSpotify: Tweak {
             return
         }
 
-        // V11: confirmed Frida behavior, scoped to the 9.2.0 restriction builder.
-        EEVInstallNativePlaybackFix({
-            UserDefaults.patchType.isPatching
-        }, { message in
-            writeDebugLog(String(cString: message))
-        })
-
-        // V8 operates independently of debug logging, but only in patching mode.
-        // Install before V7 so snapshots describe the effective local model.
-        EEVInstallPlaybackRestrictionPolicy(Self.spotifyVersion, {
-            UserDefaults.patchType.isPatching
-        }, { message in
-            writeDebugLog(String(cString: message))
-        })
-
-        // Install before other feature hooks so early configuration activity is visible.
-        if UserDefaults.debugLoggingEnabled {
-            EEVInstallCommandOutcomeDiagnostics(Self.spotifyVersion) { message in
-                writeDebugLog(String(cString: message))
-            }
-            EEVInstallPlaybackDiagnostics { message in
-                writeDebugLog(String(cString: message))
-            }
-            EEVStartProductStateDiagnostics { message in
-                writeDebugLog(String(cString: message))
-            }
-            EEVInstallNativeConfigDiagnostics { message in
-                writeDebugLog(String(cString: message))
-            }
-            for delay in [30.0, 90.0] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    EEVNativeConfigDiagnosticsSummary()
-                    EEVProductStateSummary()
-                    EEVPlaybackDiagnosticsSummary()
-                    EEVPlaybackRestrictionPolicySummary()
-                }
-            }
-        }
-
         // Local-only premium force; independent of patching, so premium UI survives everything else being off.
         activateEeveePremiumForce()
-        if UserDefaults.debugLoggingEnabled {
-            EEVInstallProductStateBridgeProbe()
-        }
 
         activateTelemetryBlock()
         activateTheme()
@@ -327,7 +290,7 @@ struct EeveeSpotify: Tweak {
             ("SPTAuthSessionImplementation", "SPTAuthSession"),
             ("_TtC24Connectivity_SessionImpl18SessionServiceImpl", "SessionServiceImpl"),
             ("SPTAuthLegacyLoginControllerImplementation", "LegacyLoginController"),
-            ("_TtC24Connectivity_SessionImplP33_831B98CC28223E431E21CD27ADD20AF222OauthAccessTokenBridge", "OauthAccessTokenBridge"),
+            (OauthAccessTokenBridgeHook.targetName, "OauthAccessTokenBridge"),
             ("ARTWebSocketTransport", "AblyWebSocket"),
             ("ARTSRWebSocket", "AblySRWebSocket"),
         ]
@@ -348,8 +311,6 @@ struct EeveeSpotify: Tweak {
 
             if UserDefaults.patchType.isPatching {
                 PremiumBootstrapGroup().activate()
-                PremiumHttpClientConfigurationGroup().activate()
-                writeDebugLog("[CONFIG V2] modern delegates active; legacy bootstrap hook excluded")
                 writeDebugLog("[INIT] Activated PremiumBootstrapGroup")
 
                 if let hub = NSClassFromString("HUBViewModelBuilderImplementation"),
@@ -438,12 +399,6 @@ struct EeveeSpotify: Tweak {
         }
         
         if UserDefaults.patchType.isPatching {
-            if Self.spotifyVersion == "9.2.0" {
-                PremiumHttpClientConfigurationGroup().activate()
-                writeDebugLog("[CONFIG V12] 9.2.0 HTTP configuration hook requested; overwrite=\(UserDefaults.overwriteConfiguration); legacy excluded")
-            } else {
-                LegacyPremiumBootstrapGroup().activate()
-            }
             activatePremiumPatchingGroup()
         }
         
@@ -451,7 +406,7 @@ struct EeveeSpotify: Tweak {
             BaseLyricsGroup().activate()
             LyricsErrorHandlingGroup().activate()
             
-            if EeveeSpotify.hookTarget == .latest {
+            if EeveeSpotify.hookTarget == .v90 {
                 ModernLyricsGroup().activate()
             }
             else {

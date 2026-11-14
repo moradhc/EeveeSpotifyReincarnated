@@ -173,7 +173,12 @@ class LegacyLoginControllerHook: ClassHook<NSObject> {
 
 class OauthAccessTokenBridgeHook: ClassHook<NSObject> {
     typealias Group = SessionLogoutConnectivityHookGroup
-    static let targetName = "_TtC24Connectivity_SessionImplP33_831B98CC28223E431E21CD27ADD20AF222OauthAccessTokenBridge"
+    // 9.2.0 moved OauthAccessTokenBridge from Connectivity_SessionImpl to Authentication_AuthAPI.
+    static let targetName: String = {
+        let v92Name = "_TtC22Authentication_AuthAPIP33_51216C0E0622094D354255A3124BC44D22OauthAccessTokenBridge"
+        if NSClassFromString(v92Name) != nil { return v92Name }
+        return "_TtC24Connectivity_SessionImplP33_831B98CC28223E431E21CD27ADD20AF222OauthAccessTokenBridge"
+    }()
 
     func expiresAt() -> Any {
         let farFuture = Date(timeIntervalSinceNow: 365 * 24 * 60 * 60)
@@ -325,11 +330,6 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
             let elapsed = Date().timeIntervalSince(tweakInitTime)
             let elapsedInt = Int(elapsed)
             let path = url.path
-
-            if path.lowercased().contains("bootstrap") || path.lowercased().contains("customize") {
-                // No URL queries, request bodies or authorization values in diagnostics.
-                writeDebugLog("[CONFIG V2] request host=\(host) endpoint=\(url.lastPathComponent) bootstrapMatch=\(url.isBootstrap) customizeMatch=\(url.isCustomize)")
-            }
 
             if url.isAdRelated {
                 writeDebugLog("[ORACLE][NET_BLOCK] Cancelled ad task at \(elapsedInt)s: \(host)\(path)")
